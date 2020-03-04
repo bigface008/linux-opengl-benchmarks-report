@@ -41,7 +41,7 @@ $ rm -rf ~/.local/share/Steam && rm -rf ~/.steam
 
 ### 修改启动命令
 
-在Steam图形化客户端中选择库，右键游戏，点击属性，设置启动选项。
+在Steam图形化客户端中选择库，右键选中的游戏，点击属性，设置启动选项。
 
 ### 游戏中文字体乱码
 
@@ -51,13 +51,19 @@ $ rm -rf ~/.local/share/Steam && rm -rf ~/.steam
 $ sudo apt-get install ttf-wqy-microhei ttf-wqy-zenhei xfonts-wqy
 ```
 
+### Steam本身的FPS显示
+
+右键左上角Steam、设置、游戏中，游戏中的帧数显示。
+
+这个东西不能输出到文件，我去steam for linux的github仓库上问了一下，管理员说这个功能已经在被track了，但是我看他给出的以前提这个要求的人的issue链接，是19年5月份的......
+
 ## 测量 FPS (Frame Rate)
 
 目前测试过的工具包括
 
 - [apitrace](https://github.com/apitrace/apitrace) 最有希望成功的。
-- [libframetime](https://github.com/clbr/libframetime) 最简单的测试工具，折腾了很长时间后还是失败了。
-- [glxosd](https://glxosd.nickguletskii.com/) 失败。不过后来觉得可能还有希望？
+- [libframetime](https://github.com/clbr/libframetime) 最简单的测试工具，停更了很长时间了。折腾了很长时间后还是失败了。
+- [glxosd](https://glxosd.nickguletskii.com/) 失败。不过后来觉得可能还有希望？停更了不少时间了。
 - [voglperf](https://github.com/ValveSoftware/voglperf)  Valve(Steam所属的公司)开发的开源FPS测试工具，仅能测试Steam上的游戏。停更了很长时间了。失败。
 
 ### apitrace
@@ -73,7 +79,7 @@ $ sudo apt-get install ttf-wqy-microhei ttf-wqy-zenhei xfonts-wqy
 
 - 在wrappers中创建软链接。
 
-  文档里说要`ln -s glxtrace.so wrapper/libGL.so*`，但是实际上glxtrace.so就是在wrapper文件夹里面的。我不知道这会有什么影响。
+  文档里说要`ln -s glxtrace.so wrapper/libGL.so*`，但是实际上glxtrace.so就是在wrapper文件夹里面的。我是直接在`/path/to/apitrace/build32/wrapper`文件夹里`ln -s glxtrace.so libGL.so*`，不知道这会有什么影响。
 
 - 配置如下脚本
 
@@ -84,9 +90,9 @@ $ sudo apt-get install ttf-wqy-microhei ttf-wqy-zenhei xfonts-wqy
   /path/to/apitrace/build32/apitrace trace --api gl --output /path/to/output.trace "$@"
   ```
 
-  假设脚本名称是`/path/to/run.sh`，你可以在游戏对应的启动命令里输入`/path/to/run.sh %command%`，接着在Steam客户端里直接启动游戏。
+  假设脚本名称是`/path/to/run.sh`，你可以在Steam游戏对应的启动命令里输入`/path/to/run.sh %command%`，接着在Steam客户端里直接启动游戏。
 
-- 关闭Steam Community。
+- 关闭Steam Community。右键客户端左上角Steam，设置，游戏中，去掉在游戏中启用Steam界面的选项。注意，关了这个东西之后，Steam自带的帧率显示也被关掉了。
 
 可以通过`file {可执行文件名}`这一命令来判断是32位还是64位，注意是二进制文件，不是shell脚本。
 
@@ -114,7 +120,7 @@ $ /path/to/apitrace dump --calls=frame l4d2.trace > l4d2.frame.log
 
 #### 给trace加上时间戳以计算FPS
 
-需要注意的是，这东西在trace程序的时候，是不会记录各个接口调用的时间戳的！所以我们需要自己修改代码！
+需要注意的是，apitrace在trace程序的时候，是不会记录各个接口调用的时间戳的，所以我们需要修改代码。
 
 辛运的是，网上有人已经这么做过了。[apitrace原理分析及改进](https://blog.simbot.net/index.php/2018/01/28/apitrace2/)这篇文章的末尾提到了修改apitrace来使它能够在trace时就能记录时间戳，提供了相应的`diff`文件:
 
@@ -132,7 +138,38 @@ error: (glXGetProcAddressARB) unknown call detail 6
 
 目前还不知道怎么解决。
 
-总之，目前可以成功在glxgears、glmark2、求生之路2（Left 4 Dead 2）上运行trace，并且dump，但是改了代码之后求生之路2就不能dump 。
+总之，目前可以成功在glxgears、glmark2、求生之路2（Left 4 Dead 2）上运行trace，并且dump，但是改了代码之后求生之路2的trace就不能dump了。
+
+## 限制 FPS
+
+不限制帧率的话，Steam上有的游戏的帧率会飙升到290多，这显然超过了实际需求。
+
+我使用[libstrangle](https://github.com/milaq/libstrangle)来限制帧率。这个东西的安装本身没出什么问题，主要是使用方式。
+
+我推荐把它放进脚本里使用。
+
+```bash
+#!/bin/sh
+exec env FPS=70 VSYNC=1 LD_PRELOAD="${LD_PRELOAD}:libstrangle.so" "$@"
+```
+
+假设脚本名称是`path/to/strangle.sh`，你可以设置Steam游戏启动命令为`path/to/strangle.sh %command%`。
+
+这东西如果和apitrace一起用，我推荐使用下面的脚本。
+
+```bash
+#!/bin/sh
+FPS=70
+VSYNC=1
+LD_PRELOAD="${LD_PRELOAD}:libstrangle.so"
+export LD_LIBRARY_PATH="/path/to/apitrace/build32/wrappers:${LD_LIBRARY_PATH}"
+export TRACE_LIBGL="/usr/lib/i386-linux-gnu/libGL.so"
+/path/to/apitrace2/build32/apitrace trace --api gl --output /path/to/output.trace "$@"
+```
+
+假设脚本名称是`path/to/all.sh`，你可以设置Steam游戏启动命令为`path/to/all.sh %command%`。
+
+不过，因为apitrace本身跟踪Steam游戏需要关闭Steam Community，这也会导致我看不了帧率，所以这个脚本是否能限制帧率还是存疑的。不过听风扇声音，帧率应该是被限制住了。
 
 ## CPU & Memory
 
